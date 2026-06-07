@@ -66,15 +66,110 @@ Rôle :
 - stabiliser les payloads,
 - découpler l'API du modèle JPA.
 
-## 4. Packages attendus
-Structure logique recommandée :
+## 4. Packages (Package by Component)
+Le code est organisé **par composant** : chaque domaine est un **package unique et
+plat** (pas de sous-packages par couche du type `controllers`, `services`,
+`repositories`). Cela permet de s'appuyer sur la **visibilité Java** pour encapsuler
+les détails d'implémentation, et prépare une extraction propre en microservices.
 
-- `fr.miage.numres.catalog.controllers`
-- `fr.miage.numres.catalog.services`
-- `fr.miage.numres.catalog.repositories`
-- `fr.miage.numres.catalog.entities`
-- `fr.miage.numres.catalog.dtos`
-- `fr.miage.numres.catalog.mappers`
+```
+fr.miage.numres
+├── SpringDemoNumres2526Application   (@SpringBootApplication, à la racine)
+├── common                            (noyau transversal, partagé sans coupler les domaines)
+│   ├── ApiError                      (public) — payload d'erreur normalisé
+│   ├── ResourceNotFoundException     (public) — base 404
+│   ├── DuplicateResourceException    (public) — base 409
+│   ├── BusinessRuleException         (public) — base 400
+│   ├── GlobalExceptionHandler        (@RestControllerAdvice)
+│   └── OpenApiConfig                 (config Swagger/OpenAPI)
+├── catalog                           (composant Catalogue — package unique)
+│   ├── AnimeController               (public)
+│   ├── AnimeService                  (public)        ← interface
+│   ├── AnimeServiceImpl              (package-private) ← implémentation cachée
+│   ├── AnimeRepository               (package-private)
+│   ├── Anime                         (package-private) ← entité JPA, jamais exposée
+│   ├── AnimeDTO / AnimeCreateDTO / AnimePatchDTO  (public) ← contrats d'API
+│   ├── AnimeMapper                   (package-private)
+│   ├── AnimeNotFoundException        (package-private, extends ResourceNotFoundException)
+│   └── CatalogDataInitializer        (package-private)
+└── watchlist                         (composant Watchlist — package unique)
+    ├── WatchlistController           (public)
+    ├── WatchlistService              (public)        ← interface
+    ├── WatchlistServiceImpl          (package-private) ← implémentation cachée
+    ├── WatchlistRepository / UserRepository           (package-private)
+    ├── WatchlistEntry / User         (package-private) ← entités JPA
+    ├── WatchStatus                   (public enum)
+    ├── WatchlistEntry*DTO            (public) ← Create / Replace / Patch / réponse
+    ├── WatchlistMapper               (package-private)
+    ├── *NotFoundException / DuplicateWatchlistEntryException (package-private)
+    └── WatchlistDataInitializer      (package-private)
+```
+
+**Règle de visibilité appliquée :**
+- **public** : interfaces de service (`AnimeService`, `WatchlistService`), DTOs,
+  enum exposé (`WatchStatus`), contrôleurs, et le noyau `common`.
+- **package-private** : implémentations de service (`*ServiceImpl`), repositories,
+  entités JPA, mappers et exceptions spécifiques au domaine.
+
+Comme tout le composant vit dans un seul package, l'implémentation peut utiliser un
+repository package-private sans jamais l'exposer à l'extérieur. La seule porte
+d'entrée d'un domaine est donc son interface de service (+ ses DTOs).
+
+La classe `@SpringBootApplication` est placée à la racine `fr.miage.numres` pour
+scanner les deux composants.
+
+### 4.0 Pourquoi un package plat ? (justification du choix)
+Le cours (Chapitre 3 — *Structure du code et Encapsulation*) compare quatre
+approches, classées par niveau d'encapsulation croissant :
+
+| Approche | Organisation | Encapsulation | Notre verdict |
+|----------|--------------|---------------|---------------|
+| **Package by Layer** | par rôle technique (`web`, `service`, `data`) | **Faible** : tout doit être `public` | ❌ Interdit par le sujet |
+| **Package by Feature** | par domaine métier (un dossier = une feature) | **Meilleure** : permet le package-private | ➖ Point de départ |
+| **Package by Component** | feature + **isolation forcée** (boîte noire, une seule interface exposée) | **Forte** | ✅ **Choisi** |
+| **Ports & Adapters (Hexagonal)** | domaine totalement isolé de l'infra via des ports | **Maximale** | ➖ Surdimensionné pour ce TP |
+
+Nous avons retenu le **Package by Component**, présenté par le cours comme
+« l'équilibre parfait entre les couches et les fonctionnalités ». Le composant agit
+comme une **boîte noire** : il n'expose qu'une **interface de service** (+ ses DTOs),
+toute l'implémentation réelle (service, repository, entité, mapper) reste cachée.
+
+**Pourquoi le package est-il *plat* (sans sous-dossiers `controllers/`, `services/`…) ?**
+C'est une **contrainte technique de Java**, pas un choix esthétique : la visibilité
+*package-private* (classe déclarée sans le mot-clé `public`) n'est accessible que
+**depuis le même package**. Pour que `AnimeServiceImpl` (caché) puisse utiliser
+`AnimeRepository` (caché), les deux **doivent** être dans le même package.
+
+Si l'on conservait des sous-packages par couche, on serait **forcé de tout remettre
+en `public`** — et l'on retomberait exactement sur le **Package by Layer**, l'approche
+que le cours désigne comme la plus faible en encapsulation. Aplatir le domaine est
+donc la condition *sine qua non* pour appliquer réellement les Règles 1 et 2 du sujet.
+
+Ce choix illustre directement le **D de SOLID** (Dependency Inversion) : les
+contrôleurs et le composant Watchlist dépendent d'**abstractions** (`AnimeService`,
+`WatchlistService`) et jamais des implémentations ou des repositories concrets, qui
+demeurent invisibles hors de leur package.
+
+### 4.1 Découplage entre Catalogue et Watchlist
+La Watchlist ne dépend **pas** des entités ni du repository du Catalogue. Une entrée
+de watchlist référence un anime par son **identifiant** (`animeId`), et la couche
+service de la Watchlist vérifie l'existence de l'anime et enrichit ses réponses en
+passant par l'**interface** `AnimeService`. L'interaction inter-domaines se fait donc
+uniquement via une abstraction, ce qui prépare une éventuelle extraction en
+microservices indépendants.
+
+### 4.2 Gestion de l'utilisateur
+Le propriétaire d'un suivi est modélisé par une entité `User` **interne au composant
+Watchlist** (`fr.miage.numres.watchlist.User`, package-private). Chaque entrée
+référence un utilisateur, résolu et validé par le service. L'authentification et la sécurité ne
+sont pas dans le périmètre : un utilisateur de démonstration est utilisé par défaut.
+
+### 4.3 API REST (Phase 2)
+Les deux domaines exposent l'ensemble des verbes REST sur leurs ressources :
+`GET` (collection et élément), `POST`, `PUT` (remplacement complet), `PATCH`
+(mise à jour partielle) et `DELETE`. Les contrôleurs ne reçoivent et ne renvoient
+que des DTOs (jamais d'entité `@Entity`), et les codes HTTP sont normalisés
+(`200`, `201` + `Location`, `204`, `400`, `404`, `409`).
 
 ## 5. Flux de traitement d'une requête
 Exemple : création d'un anime.

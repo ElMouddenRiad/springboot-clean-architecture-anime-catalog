@@ -1,7 +1,11 @@
-# AnimeTracker - Catalogue Backend
+# AnimeTracker - Backend
 
-Backend Spring Boot du projet **AnimeTracker**, centré sur le **catalogue d'animes**.
-Ce module fournit une base de connaissance "froide" : informations officielles sur les animes, séparées de la future watchlist utilisateur.
+Backend Spring Boot du projet **AnimeTracker**, organisé autour de **deux domaines découplés** :
+
+- **Catalogue** : base de connaissance « froide » (informations officielles des animes : titre, studio, épisodes, genres).
+- **Watchlist** : base « chaude » et dynamique liée à l'activité de l'utilisateur (statut de visionnage, progression par épisode, score personnel).
+
+La Watchlist référence un anime **par son identifiant** (référence souple) et vérifie son existence via l'**interface** `AnimeService` : les deux domaines restent ainsi indépendants et pourront évoluer vers des microservices séparés.
 
 ## Contexte académique
 Projet réalisé dans le cadre du **M2 MIAGE Numérique Responsable**.
@@ -31,39 +35,44 @@ Construire une architecture backend propre, testable et évolutive en respectant
 ## Objective
 Build a clean, testable and evolutive backend while respecting:
 - strict layer separation,
-- **SOLID** principles,
+- **SOLID** principles,e
 - encapsulation of JPA entities,
 - API exposure through DTOs only.
 
 ## Stack technique
-- Java 25
+- Java 21 (toolchain de build locale ; cible visée : Java 25)
 - Spring Boot 4.0.2
 - Spring Data JPA
 - H2 en mémoire
 - Spring Web MVC
+- Bean Validation (Jakarta)
+- MapStruct (mapping entité ↔ DTO)
 - Springdoc OpenAPI / Swagger UI
 - Lombok
 - Gradle
 
 ## Technical stack
-- Java 25
+- Java 21 (local build toolchain; intended target: Java 25)
 - Spring Boot 4.0.2
 - Spring Data JPA
 - H2 in-memory database
 - Spring Web MVC
+- Bean Validation (Jakarta)
+- MapStruct (entity ↔ DTO mapping)
 - Springdoc OpenAPI / Swagger UI
 - Lombok
 - Gradle
 
 ## Architecture cible
-Le projet est organisé par **feature** autour du catalogue :
+Le projet est organisé en **Package by Component** : un package par domaine
+(`catalog`, `watchlist`), chacun regroupant les rôles suivants :
 
 - **API / Controllers** : point d'entrée HTTP, manipulation de DTOs uniquement
-- **Service** : logique métier, orchestration, conversion DTO ↔ entité
-- **Repository** : accès aux données via Spring Data JPA
-- **Entity** : modèle de persistance interne à la couche métier
-- **DTOs** : contrats d'échange exposés à l'extérieur
-- **Mapper** : conversion entre entités et DTOs
+- **Service** : logique métier, orchestration, conversion DTO ↔ entité (interface publique + implémentation cachée)
+- **Repository** : accès aux données via Spring Data JPA (package-private)
+- **Entity** : modèle de persistance interne au composant (package-private)
+- **DTOs** : contrats d'échange exposés à l'extérieur (public)
+- **Mapper** : conversion entre entités et DTOs (package-private)
 
 ## Target architecture
 The project is organized by **feature** around the catalogue:
@@ -81,18 +90,69 @@ Aucune entité JPA ne doit être exposée directement par l'API.
 ### Important principle
 No JPA entity should be exposed directly by the API.
 
-## Fonctionnalités prévues du catalogue
-- créer un anime
-- récupérer la liste des animes
-- récupérer un anime par identifiant
-- exposer la documentation Swagger pour tester les endpoints
+## Structure des packages (Package by Component)
+Chaque domaine est un **package unique et plat** (pas de sous-packages par couche),
+ce qui permet d'utiliser la **visibilité Java** pour encapsuler les détails :
 
-## Endpoints REST attendus
-> Le préfixe retenu est `/api/animes`
+```
+fr.miage.numres
+├── common        # noyau transversal : ApiError, exceptions de base, GlobalExceptionHandler, OpenApiConfig
+├── catalog       # composant Catalogue : Anime(+DTOs), AnimeRepository, AnimeMapper,
+│                 #   AnimeService (public) + AnimeServiceImpl (caché), AnimeController, exception, seeder
+└── watchlist     # composant Watchlist : WatchlistEntry/User(+DTOs), repositories, mapper,
+                  #   WatchlistService (public) + WatchlistServiceImpl (caché), WatchlistController, exceptions, seeder
+```
 
-- `GET /api/animes`
-- `GET /api/animes/{id}`
-- `POST /api/animes`
+**Encapsulation par visibilité :**
+- `public` : interfaces de service (`AnimeService`, `WatchlistService`), DTOs, enum `WatchStatus`, contrôleurs ;
+- `package-private` : implémentations (`*ServiceImpl`), repositories, entités JPA, mappers et exceptions de domaine.
+
+> **Pourquoi un package plat ?** Le *package-private* de Java n'est visible que dans le **même package**. Pour que l'implémentation cachée puisse utiliser un repository caché, les deux doivent cohabiter dans un package unique. Garder des sous-dossiers par couche (`controllers/`, `services/`…) obligerait à tout rendre `public` — c'est-à-dire à retomber sur le *Package by Layer*, l'approche la plus faible en encapsulation selon le cours (Chapitre 3). L'aplatissement est donc la condition nécessaire pour appliquer un vrai **Package by Component**. Voir [`docs/ARCHITECTURE.md` §4.0](docs/ARCHITECTURE.md) pour la justification détaillée.
+
+La classe `@SpringBootApplication` est à la racine `fr.miage.numres` afin de scanner les deux composants.
+
+### Gestion de l'utilisateur
+Chaque suivi de watchlist appartient à un `User` (entité du module watchlist). En l'absence
+d'authentification (hors périmètre), un utilisateur de démonstration `demo` est utilisé par
+défaut si aucun `userId` n'est fourni ; un `userId` explicite est validé (404 s'il n'existe pas).
+La sécurité et le métier utilisateur complets ne sont volontairement pas implémentés.
+
+## Fonctionnalités du catalogue
+- lister, consulter, créer, **remplacer (PUT)**, **modifier partiellement (PATCH)** et **supprimer** un anime
+
+## Fonctionnalités de la watchlist
+- ajouter un anime à sa watchlist (avec vérification de son existence dans le catalogue et de l'utilisateur)
+- lister les suivis, avec filtres optionnels par utilisateur et par statut
+- récupérer un suivi par identifiant
+- remplacer complètement (PUT) ou mettre à jour partiellement (PATCH) un suivi
+- retirer un suivi
+
+### Règles métier de la watchlist
+- la progression ne peut pas dépasser le nombre d'épisodes de l'anime (sinon `400`),
+- un anime déjà présent dans la watchlist d'un utilisateur ne peut pas être ajouté deux fois (sinon `409`),
+- passer au statut `COMPLETED` aligne automatiquement la progression sur le nombre total d'épisodes,
+- statuts possibles : `PLAN_TO_WATCH`, `WATCHING`, `COMPLETED`, `ON_HOLD`, `DROPPED`.
+
+## Endpoints REST
+### Catalogue — préfixe `/api/catalog`
+| Verbe | Endpoint | Action |
+|-------|----------|--------|
+| GET | `/api/catalog` | Lister tous les animes |
+| POST | `/api/catalog` | Créer un anime (validation) |
+| GET | `/api/catalog/{id}` | Détails d'un anime |
+| PUT | `/api/catalog/{id}` | Remplacement complet |
+| PATCH | `/api/catalog/{id}` | Mise à jour partielle |
+| DELETE | `/api/catalog/{id}` | Supprimer un anime |
+
+### Watchlist — préfixe `/api/watchlist`
+| Verbe | Endpoint | Action |
+|-------|----------|--------|
+| GET | `/api/watchlist` | Lister les suivis (filtres optionnels `?userId=` et `?status=`) |
+| POST | `/api/watchlist` | Ajouter un anime à la liste (référence un `animeId` valide) |
+| GET | `/api/watchlist/{id}` | Détails d'un suivi |
+| PUT | `/api/watchlist/{id}` | Remplacer l'état complet du suivi |
+| PATCH | `/api/watchlist/{id}` | Mise à jour de la progression |
+| DELETE | `/api/watchlist/{id}` | Retirer le suivi |
 
 ## Documentation interactive
 Swagger UI est disponible via :
@@ -126,11 +186,11 @@ Paramètre JDBC utilisé dans la configuration actuelle :
 ## Test rapide via Swagger
 1. Démarrer l'application
 2. Ouvrir Swagger UI
-3. Tester un `POST /api/animes`
-4. Relancer un `GET /api/animes`
-5. Tester un `GET /api/animes/{id}`
+3. Tester un `POST /api/catalog`
+4. Relancer un `GET /api/catalog`
+5. Tester un `GET /api/catalog/{id}`
 
-### Exemple de payload de création
+### Exemple de payload — création d'un anime (`POST /api/catalog`)
 ```json
 {
   "title": "Attack on Titan",
@@ -141,15 +201,56 @@ Paramètre JDBC utilisé dans la configuration actuelle :
 }
 ```
 
-## État actuel du projet
-Le projet est encore **en phase d'itération**.
+### Exemple de payload — ajout à la watchlist (`POST /api/watchlist`)
+```json
+{
+  "userId": 1,
+  "animeId": 1,
+  "status": "WATCHING",
+  "currentEpisode": 3,
+  "score": 8
+}
+```
 
-Points à finaliser / renforcer :
-- stabiliser l'organisation des packages,
-- compléter les contrôleurs et services,
-- ajouter des tests unitaires et d'intégration,
-- améliorer la documentation OpenAPI si nécessaire,
-- préparer l'évolution vers la future watchlist.
+### Exemple de payload — remplacement complet d'un suivi (`PUT /api/watchlist/{id}`)
+```json
+{
+  "status": "COMPLETED",
+  "currentEpisode": 25,
+  "score": 10
+}
+```
+
+### Exemple de payload — mise à jour partielle d'un suivi (`PATCH /api/watchlist/{id}`)
+```json
+{
+  "currentEpisode": 12
+}
+```
+
+## Données de démonstration
+Au démarrage (hors profil `test`), le catalogue est pré-rempli avec 3 animes, deux utilisateurs (`demo`, `alice`) sont créés et une watchlist de démonstration est associée à l'utilisateur `demo`.
+
+## Tests
+```bash
+./gradlew.bat test
+```
+Couverture : tests unitaires des services (Mockito), tests de tranche des contrôleurs (`@WebMvcTest`), test de persistance (`@DataJpaTest`) et chargement du contexte Spring.
+
+## État actuel du projet
+Phases 1 et 2 **complètes et fonctionnelles** :
+- les deux domaines (Catalogue et Watchlist) sont implémentés avec une séparation stricte des couches,
+- API REST complète sur les deux modules : `GET`, `POST`, `GET/{id}`, `PUT`, `PATCH`, `DELETE`,
+- aucune entité JPA n'est exposée : l'API n'échange que des DTOs (entrée et sortie),
+- gestion de l'utilisateur côté watchlist (sans sécurité/authentification),
+- gestion d'erreurs normalisée (404 / 409 / 400) et validation des entrées (`@NotNull`, `@Min`, `@Size`…),
+- documentation Swagger fonctionnelle pour tester chaque endpoint,
+- tests automatisés (services, contrôleurs, persistance) au vert.
+
+Évolutions possibles (phases suivantes) :
+- authentification et métier utilisateur réels,
+- séparation en modules / microservices indépendants,
+- pagination et tri des collections.
 
 ## Valeur pédagogique
 Ce projet illustre :
