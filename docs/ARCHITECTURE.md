@@ -171,6 +171,39 @@ Les deux domaines exposent l'ensemble des verbes REST sur leurs ressources :
 que des DTOs (jamais d'entité `@Entity`), et les codes HTTP sont normalisés
 (`200`, `201` + `Location`, `204`, `400`, `404`, `409`).
 
+### 4.4 Suppression logique (soft delete) et référence souple résiliente
+Comme les deux domaines ne partagent aucune clé étrangère, la suppression d'un anime
+pourrait laisser des suivis « orphelins » dans la Watchlist. Plutôt que de subir ce
+problème, le Catalogue applique une **suppression logique** :
+
+- l'entité `Anime` porte un drapeau `deleted` (colonne `is_deleted`, `nullable = false`) ;
+- `deleteAnime(id)` ne fait **pas** de `delete` SQL : il positionne `deleted = true`
+  puis `save` (suppression réversible, traçable) ;
+- la **vue publique** ne montre que les animes actifs :
+  - `getAllAnimes()` → `repository.findByDeletedFalse()`,
+  - `getAnimeById(id)` → `repository.findByIdAndDeletedFalse(id)` (sinon `404`).
+  Du point de vue d'un consommateur de l'API, le comportement est **identique à une
+  vraie suppression** : l'énoncé « supprimer l'animé du catalogue » est respecté.
+
+La **référence souple** de la Watchlist exploite ce mécanisme via deux contrats distincts
+de `AnimeService` :
+
+| Méthode | Visibilité du soft-deleted | Usage |
+|---------|----------------------------|-------|
+| `getAnimeById(id)` | **exclut** les supprimés (`404`) | validation à l'ajout d'un suivi (on ne suit pas un anime retiré) |
+| `findAnimeById(id)` → `Optional` | **inclut** les supprimés | enrichissement en lecture des suivis existants |
+
+Ainsi un suivi dont l'anime a été retiré reste lisible : le `WatchlistEntryDTO` conserve
+le `animeTitle` réel et expose `animeAvailable = false` (le client peut afficher
+« Attack on Titan — retiré du catalogue »).
+
+**Choix d'implémentation :** pas d'annotation Hibernate `@SQLRestriction`/`@Where`
+globale. Une restriction globale filtrerait l'entité dans *toutes* les requêtes,
+y compris le `findById` dont la Watchlist a besoin pour résoudre un anime supprimé.
+Le filtrage est donc explicite (requêtes dédiées) — on garde le contrôle et on combine
+**soft delete** (côté catalogue) et **résilience** (côté watchlist), exactement comme un
+système distribué tolère l'indisponibilité d'un service tiers.
+
 ## 5. Flux de traitement d'une requête
 Exemple : création d'un anime.
 
@@ -214,10 +247,16 @@ Lors de la finalisation du projet, il faut vérifier :
 - que les logs de démarrage ne cachent pas d'erreurs de configuration.
 
 ## 9. Évolution future
-Pour la suite du projet, on peut prévoir :
+Déjà réalisé : Catalogue + Watchlist complets, API REST des deux domaines, gestion
+d'erreurs normalisée, validation, suppression logique + référence souple résiliente,
+suite de tests (unitaires, tranche, persistance, intégration bout-en-bout).
 
-- la gestion de la watchlist,
-- la séparation en modules ou microservices,
-- des validations plus riches,
-- des erreurs métier normalisées,
-- une couverture de tests plus complète.
+Pistes pour la suite :
+
+- **extraction physique en microservices** : une base par service (`catalog_db`,
+  `watchlist_db`) et remplacement de l'appel direct à `AnimeService` par un appel
+  réseau (REST/HTTP) ou une synchronisation par événements (ex. publication d'un
+  événement « anime retiré » que la Watchlist consomme) ;
+- authentification et métier utilisateur réels (Spring Security) ;
+- pagination et tri des collections ;
+- persistance durable (PostgreSQL) en remplacement de H2.

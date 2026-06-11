@@ -36,4 +36,9 @@ class Anime {
     private Integer episodes;
 
     private String genres;
+
+    // Suppression logique (soft delete) : on désactive l'anime au lieu de le supprimer
+    // physiquement afin de préserver l'intégrité référentielle vis-à-vis de la Watchlist
+    @Column(name = "is_deleted", nullable = false)
+    private boolean deleted;
 }

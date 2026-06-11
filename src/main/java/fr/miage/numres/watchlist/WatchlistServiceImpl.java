@@ -108,8 +108,12 @@ class WatchlistServiceImpl implements WatchlistService {
     }
 
     private WatchlistEntryDTO saveWithRules(WatchlistEntry entry) {
-        AnimeDTO anime = animeService.getAnimeById(entry.getAnimeId());
-        applyBusinessRules(entry, anime);
+        // Recherche non-levante : on doit pouvoir mettre à jour un suivi même si
+        // l'anime référencé a été supprimé du catalogue entre-temps
+        AnimeDTO anime = animeService.findAnimeById(entry.getAnimeId()).orElse(null);
+        if (anime != null) {
+            applyBusinessRules(entry, anime);
+        }
         // saveAndFlush force l'application de @UpdateTimestamp pour que la réponse
         // reflète immédiatement la date de mise à jour
         return toDTO(repository.saveAndFlush(entry), anime, usernameOf(entry.getUserId()));
@@ -153,21 +157,25 @@ class WatchlistServiceImpl implements WatchlistService {
     }
 
     //Construit le DTO de réponse en récupérant les infos de l'anime et de l'utilisateur
+    //Lecture résiliente : si l'anime a été supprimé, on renvoie le suivi sans le titre/total
     private WatchlistEntryDTO toDTO(WatchlistEntry entry) {
-        AnimeDTO anime = animeService.getAnimeById(entry.getAnimeId());
+        AnimeDTO anime = animeService.findAnimeById(entry.getAnimeId()).orElse(null);
         return toDTO(entry, anime, usernameOf(entry.getUserId()));
     }
 
     private WatchlistEntryDTO toDTO(WatchlistEntry entry, AnimeDTO anime, String username) {
+        // L'anime est "disponible" s'il existe encore ET n'a pas été supprimé logiquement
+        boolean animeAvailable = anime != null && !anime.deleted();
         return new WatchlistEntryDTO(
                 entry.getId(),
                 entry.getUserId(),
                 username,
                 entry.getAnimeId(),
-                anime.title(),
+                anime != null ? anime.title() : null,
+                animeAvailable,
                 entry.getStatus(),
                 entry.getCurrentEpisode(),
-                anime.episodes(),
+                anime != null ? anime.episodes() : null,
                 entry.getScore(),
                 entry.getCreatedAt(),
                 entry.getUpdatedAt()

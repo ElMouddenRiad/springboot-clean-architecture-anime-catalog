@@ -37,7 +37,11 @@ class WatchlistServiceImplTest {
     private WatchlistServiceImpl service;
 
     private AnimeDTO anime(int episodes) {
-        return new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", episodes, "Action");
+        return new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", episodes, "Action", false);
+    }
+
+    private AnimeDTO deletedAnime(int episodes) {
+        return new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", episodes, "Action", true);
     }
 
     private User demoUser() {
@@ -64,6 +68,7 @@ class WatchlistServiceImplTest {
         assertThat(result.userId()).isEqualTo(1L);
         assertThat(result.username()).isEqualTo("demo");
         assertThat(result.animeTitle()).isEqualTo("Attack on Titan");
+        assertThat(result.animeAvailable()).isTrue();
         assertThat(result.totalEpisodes()).isEqualTo(25);
         assertThat(result.currentEpisode()).isEqualTo(5);
     }
@@ -132,7 +137,7 @@ class WatchlistServiceImplTest {
         WatchlistEntry entry = WatchlistEntry.builder()
                 .id(10L).userId(1L).animeId(1L).status(WatchStatus.WATCHING).currentEpisode(5).build();
         when(repository.findById(10L)).thenReturn(Optional.of(entry));
-        when(animeService.getAnimeById(1L)).thenReturn(anime(25));
+        when(animeService.findAnimeById(1L)).thenReturn(Optional.of(anime(25)));
         when(repository.saveAndFlush(entry)).thenReturn(entry);
         when(userRepository.findById(1L)).thenReturn(Optional.of(demoUser()));
 
@@ -149,7 +154,7 @@ class WatchlistServiceImplTest {
         WatchlistEntry entry = WatchlistEntry.builder()
                 .id(10L).userId(1L).animeId(1L).status(WatchStatus.WATCHING).currentEpisode(6).build();
         when(repository.findById(10L)).thenReturn(Optional.of(entry));
-        when(animeService.getAnimeById(1L)).thenReturn(anime(25));
+        when(animeService.findAnimeById(1L)).thenReturn(Optional.of(anime(25)));
         when(repository.saveAndFlush(entry)).thenReturn(entry);
         when(userRepository.findById(1L)).thenReturn(Optional.of(demoUser()));
 
@@ -157,6 +162,39 @@ class WatchlistServiceImplTest {
 
         assertThat(result.currentEpisode()).isEqualTo(6);
         verify(mapper).patchEntityFromDto(dto, entry);
+    }
+
+    @Test
+    void getEntryById_whenReferencedAnimeDeleted_returnsDtoWithoutAnimeInfo() {
+        WatchlistEntry entry = WatchlistEntry.builder()
+                .id(10L).userId(1L).animeId(1L).status(WatchStatus.WATCHING).currentEpisode(5).build();
+        when(repository.findById(10L)).thenReturn(Optional.of(entry));
+        when(animeService.findAnimeById(1L)).thenReturn(Optional.empty());
+        when(userRepository.findById(1L)).thenReturn(Optional.of(demoUser()));
+
+        WatchlistEntryDTO result = service.getEntryById(10L);
+
+        assertThat(result.id()).isEqualTo(10L);
+        assertThat(result.animeId()).isEqualTo(1L);
+        assertThat(result.animeTitle()).isNull();
+        assertThat(result.animeAvailable()).isFalse();
+        assertThat(result.totalEpisodes()).isNull();
+        assertThat(result.username()).isEqualTo("demo");
+    }
+
+    @Test
+    void getEntryById_whenAnimeSoftDeleted_keepsTitleButMarksUnavailable() {
+        WatchlistEntry entry = WatchlistEntry.builder()
+                .id(10L).userId(1L).animeId(1L).status(WatchStatus.WATCHING).currentEpisode(5).build();
+        when(repository.findById(10L)).thenReturn(Optional.of(entry));
+        when(animeService.findAnimeById(1L)).thenReturn(Optional.of(deletedAnime(25)));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(demoUser()));
+
+        WatchlistEntryDTO result = service.getEntryById(10L);
+
+        assertThat(result.animeTitle()).isEqualTo("Attack on Titan");
+        assertThat(result.animeAvailable()).isFalse();
+        assertThat(result.totalEpisodes()).isEqualTo(25);
     }
 
     @Test

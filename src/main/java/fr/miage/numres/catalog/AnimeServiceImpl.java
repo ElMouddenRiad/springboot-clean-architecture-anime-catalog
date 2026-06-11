@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 /*
 Implémentation package-private du metier
@@ -25,14 +26,22 @@ class AnimeServiceImpl implements AnimeService {
 
     @Override
     public List<AnimeDTO> getAllAnimes() {
-        return mapper.toDTOList(repository.findAll());
+        // Catalogue actif : on masque les animes supprimés logiquement
+        return mapper.toDTOList(repository.findByDeletedFalse());
     }
 
     @Override
     public AnimeDTO getAnimeById(Long id) {
-        return repository.findById(id)
+        // Vue "client" : un anime supprimé logiquement est considéré comme absent (404)
+        return repository.findByIdAndDeletedFalse(id)
                 .map(mapper::toDTO)
                 .orElseThrow(() -> new AnimeNotFoundException(id));
+    }
+
+    @Override
+    public Optional<AnimeDTO> findAnimeById(Long id) {
+        // Recherche incluant les animes supprimés logiquement (pour enrichissement Watchlist)
+        return repository.findById(id).map(mapper::toDTO);
     }
 
     @Override
@@ -62,14 +71,17 @@ class AnimeServiceImpl implements AnimeService {
     @Override
     @Transactional
     public void deleteAnime(Long id) {
-        if (!repository.existsById(id)) {
-            throw new AnimeNotFoundException(id);
-        }
-        repository.deleteById(id);
+        // Suppression LOGIQUE : on désactive l'anime au lieu de le retirer de la base.
+        // Du point de vue de l'API il disparaît (absent de getAll, 404 sur getById),
+        // mais la Watchlist peut toujours résoudre son titre (référence souple préservée).
+        Anime anime = findAnimeOrThrow(id);
+        anime.setDeleted(true);
+        repository.save(anime);
     }
 
+    // Recherche d'un anime ACTIF (les animes supprimés logiquement sont introuvables ici)
     private Anime findAnimeOrThrow(Long id) {
-        return repository.findById(id)
+        return repository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> new AnimeNotFoundException(id));
     }
 }

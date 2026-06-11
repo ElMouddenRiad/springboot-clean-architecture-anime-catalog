@@ -1,6 +1,7 @@
 package fr.miage.numres.catalog;
 
 import java.util.List;
+import java.util.Optional;
 
 /*
 Abstraction publique de la logique métier du catalogue
@@ -10,7 +11,11 @@ public interface AnimeService {
 
     List<AnimeDTO> getAllAnimes();
 
+    //Récupère un anime ou lève une 404 s'il n'existe pas
     AnimeDTO getAnimeById(Long id);
+
+    //Recherche non-levante : enrichissement best-effort résilient (ex: Watchlist) si l'anime a été supprimé
+    Optional<AnimeDTO> findAnimeById(Long id);
 
     AnimeDTO createAnime(AnimeCreateDTO createDTO);
 

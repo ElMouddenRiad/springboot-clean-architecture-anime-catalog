@@ -16,16 +16,19 @@ interface AnimeMapper {
 
     List<AnimeDTO> toDTOList(List<Anime> animes);
 
-    // id géré par la BD uniquement, jamais fourni à la cration
+    // id et deleted gérés par le service jamais fournis par le client
     @Mapping(target = "id", ignore = true)
+    @Mapping(target = "deleted", ignore = true)
     Anime toEntity(AnimeCreateDTO createDTO);
 
-    //Remplacement complet (PUT) : tous les champs sont écrasés, sauf l'identifiant
+    //Remplacement complet (PUT) : tous les champs sont écrasés, sauf l'identifiant et le flag deleted
     @Mapping(target = "id", ignore = true)
+    @Mapping(target = "deleted", ignore = true)
     void updateEntityFromDto(AnimeCreateDTO dto, @MappingTarget Anime entity);
 
     // Mise à jour partielle (PATCH) : les champs nuls du DTO ne sont pas appliqués
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "id", ignore = true)
+    @Mapping(target = "deleted", ignore = true)
     void patchEntityFromDto(AnimePatchDTO dto, @MappingTarget Anime entity);
 }

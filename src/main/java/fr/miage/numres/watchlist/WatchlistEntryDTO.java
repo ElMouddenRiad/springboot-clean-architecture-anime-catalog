@@ -27,6 +27,10 @@ public record WatchlistEntryDTO(
         @Schema(description = "Titre de l'anime (issu du catalogue)", example = "Attack on Titan")
         String animeTitle,
 
+        @Schema(description = "Faux si l'anime a été retiré du catalogue (suppression logique) ou est introuvable",
+                example = "true")
+        boolean animeAvailable,
+
         @Schema(description = "Statut de visionnage", example = "WATCHING")
         WatchStatus status,
 

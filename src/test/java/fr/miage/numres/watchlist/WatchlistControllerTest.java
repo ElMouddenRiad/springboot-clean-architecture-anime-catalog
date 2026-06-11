@@ -34,7 +34,7 @@ class WatchlistControllerTest {
     private WatchlistService watchlistService;
 
     private WatchlistEntryDTO sampleDTO() {
-        return new WatchlistEntryDTO(10L, 1L, "demo", 1L, "Attack on Titan",
+        return new WatchlistEntryDTO(10L, 1L, "demo", 1L, "Attack on Titan", true,
                 WatchStatus.WATCHING, 5, 25, 8, null, null);
     }
 
@@ -47,6 +47,7 @@ class WatchlistControllerTest {
                 .andExpect(jsonPath("$[0].id").value(10))
                 .andExpect(jsonPath("$[0].username").value("demo"))
                 .andExpect(jsonPath("$[0].animeTitle").value("Attack on Titan"))
+                .andExpect(jsonPath("$[0].animeAvailable").value(true))
                 .andExpect(jsonPath("$[0].status").value("WATCHING"));
     }
 

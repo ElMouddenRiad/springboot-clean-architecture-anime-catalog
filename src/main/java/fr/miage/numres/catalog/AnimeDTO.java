@@ -22,6 +22,9 @@ public record AnimeDTO(
         Integer episodes,
 
         @Schema(description = "Genres séparés par des virgules", example = "Action,Drama,Fantasy")
-        String genres
+        String genres,
+
+        @Schema(description = "Indique si l'anime a été retiré du catalogue (suppression logique)", example = "false")
+        boolean deleted
 ) {
 }

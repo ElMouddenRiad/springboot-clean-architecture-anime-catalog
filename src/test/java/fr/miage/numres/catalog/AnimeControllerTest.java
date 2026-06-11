@@ -36,7 +36,7 @@ class AnimeControllerTest {
     private AnimeService animeService;
 
     private AnimeDTO sample() {
-        return new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", 25, "Action");
+        return new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", 25, "Action", false);
     }
 
     @Test
@@ -71,7 +71,7 @@ class AnimeControllerTest {
     void createAnime_whenValid_returnsCreatedWithLocation() throws Exception {
         AnimeCreateDTO request = new AnimeCreateDTO("Bleach", "synopsis", "Pierrot", 366, "Action");
         when(animeService.createAnime(any(AnimeCreateDTO.class)))
-                .thenReturn(new AnimeDTO(5L, "Bleach", "synopsis", "Pierrot", 366, "Action"));
+                .thenReturn(new AnimeDTO(5L, "Bleach", "synopsis", "Pierrot", 366, "Action", false));
 
         mockMvc.perform(post("/api/catalog")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -96,7 +96,7 @@ class AnimeControllerTest {
     void replaceAnime_returnsOk() throws Exception {
         AnimeCreateDTO request = new AnimeCreateDTO("Attack on Titan", "new", "Wit Studio", 87, "Action");
         when(animeService.replaceAnime(eq(1L), any(AnimeCreateDTO.class)))
-                .thenReturn(new AnimeDTO(1L, "Attack on Titan", "new", "Wit Studio", 87, "Action"));
+                .thenReturn(new AnimeDTO(1L, "Attack on Titan", "new", "Wit Studio", 87, "Action", false));
 
         mockMvc.perform(put("/api/catalog/1")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -108,7 +108,7 @@ class AnimeControllerTest {
     @Test
     void patchAnime_returnsOk() throws Exception {
         when(animeService.patchAnime(eq(1L), any()))
-                .thenReturn(new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", 88, "Action"));
+                .thenReturn(new AnimeDTO(1L, "Attack on Titan", "synopsis", "Wit Studio", 88, "Action", false));
 
         mockMvc.perform(patch("/api/catalog/1")
                         .contentType(MediaType.APPLICATION_JSON)

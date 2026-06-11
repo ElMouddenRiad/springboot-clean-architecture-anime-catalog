@@ -7,8 +7,13 @@ Backend Spring Boot du projet **AnimeTracker**, organisé autour de **deux domai
 
 La Watchlist référence un anime **par son identifiant** (référence souple) et vérifie son existence via l'**interface** `AnimeService` : les deux domaines restent ainsi indépendants et pourront évoluer vers des microservices séparés.
 
+-La suppression d'un anime est une **suppression logique (soft delete)** : l'anime disparaît du catalogue côté API, mais reste résoluble par la Watchlist (le titre est conservé, signalé `animeAvailable: false`). Voir [Référence souple & suppression logique](#référence-souple--suppression-logique-soft-delete).
+
 ## Contexte académique
 Projet réalisé dans le cadre du **M2 MIAGE Numérique Responsable**.
+
+## Documentation
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - choix d'architecture (Package by Component, soft delete, référence souple).
 
 ## English summary
 This Spring Boot project focuses on the **AnimeTracker Catalogue Backend**.
@@ -30,12 +35,12 @@ Construire une architecture backend propre, testable et évolutive en respectant
 ## Objective
 Build a clean, testable and evolutive backend while respecting:
 - strict layer separation,
-- **SOLID** principles,e
+- **SOLID** principles,
 - encapsulation of JPA entities,
 - API exposure through DTOs only.
 
 ## Stack technique
-- Java 21 (toolchain de build locale ; cible visée : Java 25)
+- Java 25 (toolchain Gradle)
 - Spring Boot 4.0.2
 - Spring Data JPA
 - H2 en mémoire
@@ -47,7 +52,7 @@ Build a clean, testable and evolutive backend while respecting:
 - Gradle
 
 ## Technical stack
-- Java 21 (local build toolchain; intended target: Java 25)
+- Java 25 (Gradle toolchain)
 - Spring Boot 4.0.2
 - Spring Data JPA
 - H2 in-memory database
@@ -102,7 +107,7 @@ fr.miage.numres
 - `public` : interfaces de service (`AnimeService`, `WatchlistService`), DTOs, enum `WatchStatus`, contrôleurs ;
 - `package-private` : implémentations (`*ServiceImpl`), repositories, entités JPA, mappers et exceptions de domaine.
 
-> **Pourquoi un package plat ?** Le *package-private* de Java n'est visible que dans le **même package**. Pour que l'implémentation cachée puisse utiliser un repository caché, les deux doivent cohabiter dans un package unique. Garder des sous-dossiers par couche (`controllers/`, `services/`…) obligerait à tout rendre `public` — c'est-à-dire à retomber sur le *Package by Layer*, l'approche la plus faible en encapsulation selon le cours (Chapitre 3). L'aplatissement est donc la condition nécessaire pour appliquer un vrai **Package by Component**. Voir [`docs/ARCHITECTURE.md` §4.0](docs/ARCHITECTURE.md) pour la justification détaillée.
+> **Pourquoi un package plat ?** Le *package-private* de Java n'est visible que dans le **même package**. Pour que l'implémentation cachée puisse utiliser un repository caché, les deux doivent cohabiter dans un package unique. Garder des sous-dossiers par couche (`controllers/`, `services/`…) obligerait à tout rendre `public` - c'est-à-dire à retomber sur le *Package by Layer*, l'approche la plus faible en encapsulation selon le cours (Chapitre 3). L'aplatissement est donc la condition nécessaire pour appliquer un vrai **Package by Component**. Voir [`docs/ARCHITECTURE.md` §4.0](docs/ARCHITECTURE.md) pour la justification détaillée.
 
 La classe `@SpringBootApplication` est à la racine `fr.miage.numres` afin de scanner les deux composants.
 
@@ -113,7 +118,28 @@ défaut si aucun `userId` n'est fourni ; un `userId` explicite est validé (404 
 La sécurité et le métier utilisateur complets ne sont volontairement pas implémentés.
 
 ## Fonctionnalités du catalogue
-- lister, consulter, créer, **remplacer (PUT)**, **modifier partiellement (PATCH)** et **supprimer** un anime
+- lister, consulter, créer, **remplacer (PUT)**, **modifier partiellement (PATCH)** et **supprimer (suppression logique)** un anime
+
+## Référence souple & suppression logique (soft delete)
+Les deux domaines ne partagent **aucune clé étrangère** : la Watchlist ne connaît qu'un `animeId`
+et appelle l'interface `AnimeService` pour enrichir ses réponses (titre, nombre d'épisodes). Ce
+couplage faible prépare une future séparation en microservices.
+
+Pour que cette référence reste cohérente même quand un anime est retiré, le Catalogue applique une
+**suppression logique** :
+
+- `DELETE /api/catalog/{id}` ne supprime pas la ligne en base : il positionne un drapeau `deleted = true`.
+- Côté **API publique**, l'anime est considéré comme absent : il disparaît de `GET /api/catalog` et
+  `GET /api/catalog/{id}` renvoie `404`. Le contrat REST est donc identique à une vraie suppression.
+- Côté **Watchlist**, l'anime reste **résoluble en interne** : les suivis existants conservent le titre
+  réel et sont marqués `animeAvailable: false` (au lieu de planter ou de perdre l'information).
+- On **ne peut plus ajouter** un anime supprimé à une watchlist (`POST /api/watchlist` → `404`), mais on
+  peut **continuer à mettre à jour** un suivi déjà existant.
+
+Choix d'implémentation : pas d'annotation `@SQLRestriction`/`@Where` globale (qui masquerait l'anime
+*partout*, y compris pour la Watchlist). Le filtrage est explicite via des requêtes dédiées
+(`findByDeletedFalse`, `findByIdAndDeletedFalse`), tandis que `findById` reste non filtré pour
+l'enrichissement. On combine ainsi **soft delete** et **résilience**.
 
 ## Fonctionnalités de la watchlist
 - ajouter un anime à sa watchlist (avec vérification de son existence dans le catalogue et de l'utilisateur)
@@ -129,7 +155,7 @@ La sécurité et le métier utilisateur complets ne sont volontairement pas impl
 - statuts possibles : `PLAN_TO_WATCH`, `WATCHING`, `COMPLETED`, `ON_HOLD`, `DROPPED`.
 
 ## Endpoints REST
-### Catalogue — préfixe `/api/catalog`
+### Catalogue - préfixe `/api/catalog`
 | Verbe | Endpoint | Action |
 |-------|----------|--------|
 | GET | `/api/catalog` | Lister tous les animes |
@@ -137,9 +163,9 @@ La sécurité et le métier utilisateur complets ne sont volontairement pas impl
 | GET | `/api/catalog/{id}` | Détails d'un anime |
 | PUT | `/api/catalog/{id}` | Remplacement complet |
 | PATCH | `/api/catalog/{id}` | Mise à jour partielle |
-| DELETE | `/api/catalog/{id}` | Supprimer un anime |
+| DELETE | `/api/catalog/{id}` | Supprimer un anime (**suppression logique**, renvoie `204`) |
 
-### Watchlist — préfixe `/api/watchlist`
+### Watchlist - préfixe `/api/watchlist`
 | Verbe | Endpoint | Action |
 |-------|----------|--------|
 | GET | `/api/watchlist` | Lister les suivis (filtres optionnels `?userId=` et `?status=`) |
@@ -185,7 +211,7 @@ Paramètre JDBC utilisé dans la configuration actuelle :
 4. Relancer un `GET /api/catalog`
 5. Tester un `GET /api/catalog/{id}`
 
-### Exemple de payload — création d'un anime (`POST /api/catalog`)
+### Exemple de payload - création d'un anime (`POST /api/catalog`)
 ```json
 {
   "title": "Attack on Titan",
@@ -196,7 +222,7 @@ Paramètre JDBC utilisé dans la configuration actuelle :
 }
 ```
 
-### Exemple de payload — ajout à la watchlist (`POST /api/watchlist`)
+### Exemple de payload - ajout à la watchlist (`POST /api/watchlist`)
 ```json
 {
   "userId": 1,
@@ -207,7 +233,7 @@ Paramètre JDBC utilisé dans la configuration actuelle :
 }
 ```
 
-### Exemple de payload — remplacement complet d'un suivi (`PUT /api/watchlist/{id}`)
+### Exemple de payload - remplacement complet d'un suivi (`PUT /api/watchlist/{id}`)
 ```json
 {
   "status": "COMPLETED",
@@ -216,7 +242,7 @@ Paramètre JDBC utilisé dans la configuration actuelle :
 }
 ```
 
-### Exemple de payload — mise à jour partielle d'un suivi (`PATCH /api/watchlist/{id}`)
+### Exemple de payload - mise à jour partielle d'un suivi (`PATCH /api/watchlist/{id}`)
 ```json
 {
   "currentEpisode": 12
@@ -230,7 +256,14 @@ Au démarrage (hors profil `test`), le catalogue est pré-rempli avec 3 animes, 
 ```bash
 ./gradlew.bat test
 ```
-Couverture : tests unitaires des services (Mockito), tests de tranche des contrôleurs (`@WebMvcTest`), test de persistance (`@DataJpaTest`) et chargement du contexte Spring.
+Couverture (53 tests) :
+- **tests unitaires** des services avec Mockito (`AnimeServiceImplTest`, `WatchlistServiceImplTest`) - règles métier, soft delete, référence souple ;
+- **tests de tranche** des contrôleurs (`@WebMvcTest` : `AnimeControllerTest`, `WatchlistControllerTest`) - sérialisation JSON, codes HTTP, validation ;
+- **test de persistance** (`@DataJpaTest` : `AnimeRepositoryTest`) ;
+- **tests d'intégration bout-en-bout** (`@SpringBootTest` + `MockMvc` : `CatalogIntegrationTest`, `WatchlistIntegrationTest`) - toute la pile Controller → Service → Repository → H2, dont le scénario inter-domaines « soft delete d'un anime suivi » ;
+- **chargement du contexte** Spring (`SpringDemoNumres2526ApplicationTests`).
+
+Le rapport HTML est généré dans `build/reports/tests/test/index.html`.
 
 ## État actuel du projet
 Phases 1 et 2 **complètes et fonctionnelles** :
@@ -239,13 +272,13 @@ Phases 1 et 2 **complètes et fonctionnelles** :
 - aucune entité JPA n'est exposée : l'API n'échange que des DTOs (entrée et sortie),
 - gestion de l'utilisateur côté watchlist (sans sécurité/authentification),
 - gestion d'erreurs normalisée (404 / 409 / 400) et validation des entrées (`@NotNull`, `@Min`, `@Size`…),
+- **suppression logique (soft delete)** du catalogue + **référence souple résiliente** côté watchlist,
 - documentation Swagger fonctionnelle pour tester chaque endpoint,
-- tests automatisés (services, contrôleurs, persistance) au vert.
+- tests automatisés au vert : unitaires, tranche, persistance **et intégration bout-en-bout**.
 
 Évolutions possibles (phases suivantes) :
 - authentification et métier utilisateur réels,
-- séparation en modules / microservices indépendants,
-- pagination et tri des collections.
+- séparation physique en microservices indépendants (1 base par service + événements de synchronisation)
 
 ## Valeur pédagogique
 Ce projet illustre :
