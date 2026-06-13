@@ -13,7 +13,10 @@ La Watchlist référence un anime **par son identifiant** (référence souple) e
 Projet réalisé dans le cadre du **M2 MIAGE Numérique Responsable**.
 
 ## Documentation
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - choix d'architecture (Package by Component, soft delete, référence souple).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - choix d'architecture (Package by Component, soft delete, référence souple).
+- [`docs/TESTS.md`](docs/TESTS.md) - stratégie de tests (unitaires, slice, persistance, intégration) et interprétation des 53 tests.
+- [`docs/DTOS.md`](docs/DTOS.md) - rôle des DTOs, champs obligatoires et workflow entrée→traitement→sortie.
+- [`docs/EXCEPTIONS.md`](docs/EXCEPTIONS.md) - gestion des erreurs (codes, messages, `ApiError`), absence de 500, et champs POST/PUT/PATCH.
 
 ## English summary
 This Spring Boot project focuses on the **AnimeTracker Catalogue Backend**.
